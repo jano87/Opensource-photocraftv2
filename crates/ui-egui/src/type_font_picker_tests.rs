@@ -376,3 +376,65 @@ fn hovering_a_font_previews_only_the_selected_characters() {
     assert_eq!(fonts(&preview), ["JetBrains Mono", "JetBrains Mono", "Inter", "Inter", "Inter", "Inter"]);
     assert_eq!(fonts(&app.session.active().unwrap().doc), ["JetBrains Mono", "JetBrains Mono", "Inter", "Inter", "Inter", "Inter"]);
 }
+
+/// Preferences ▸ Type ▸ Show Font Names in English off: the menu lists a family by its localized
+/// name, finds it by either name, and picking it still applies the English family.
+#[test]
+fn localized_font_names_label_the_menu_but_pick_the_family() {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    let state = State { current: "Arial".into(), families: vec!["Arial".into(), "MS Gothic".into(), "Zeta Sans".into()], popup: egui::Id::NULL };
+    let mut h = Harness::builder().with_size(vec2(600.0, 900.0)).build_ui_state(
+        |ui, s: &mut State| {
+            s.popup = ui.make_persistent_id(egui::IdSalt::new("type-font")).with("popup");
+            let fams = s.families.clone();
+            font_picker_in(ui, &mut s.current, 170.0, &fams);
+        },
+        state,
+    );
+    // Show Font Names in English on: no localized labels.
+    crate::type_tool::sync_font_names(&h.ctx, true);
+    let labels: HashMap<String, String> = [("MS Gothic".to_string(), "ＭＳ ゴシック".to_string())].into();
+    h.ctx.data_mut(|d| d.insert_temp(super::font_labels_id(), Arc::new(labels.clone())));
+    h.run();
+    open(&mut h);
+    assert!(h.query_by_label("ＭＳ ゴシック").is_some(), "the localized name labels the family");
+    assert!(h.query_by_label("MS Gothic").is_none());
+    assert!(h.query_by_label("Arial").is_some(), "fonts without a localized name keep theirs");
+    h.get_by_role(Role::TextInput).type_text("gothic");
+    h.run();
+    assert!(h.query_by_label("ＭＳ ゴシック").is_some(), "the English name still finds it");
+    assert!(h.query_by_label("Arial").is_none());
+    // Hovering the localized row previews the stored English family (#2431).
+    let row = h.get_by_label("ＭＳ ゴシック").rect().center();
+    h.hover_at(row);
+    h.run_steps(2);
+    assert_eq!(h.ctx.data(|d| d.get_temp::<String>(egui::Id::new("type-font-hover"))).as_deref(), Some("MS Gothic"));
+    h.get_by_label("ＭＳ ゴシック").click();
+    h.run();
+    assert_eq!(h.state().current, "MS Gothic", "the document keeps the English family");
+    // Turning the preference back on drops the labels.
+    crate::type_tool::sync_font_names(&h.ctx, true);
+    h.run();
+    open(&mut h);
+    assert!(h.query_by_label("MS Gothic").is_some());
+    assert!(h.query_by_label("ＭＳ ゴシック").is_none());
+}
+
+#[test]
+fn font_menu_rows_search_both_names_and_sort_by_label() {
+    use std::collections::HashMap;
+    let families: Vec<String> = ["Arial", "Microsoft YaHei", "MS Gothic"].iter().map(|s| s.to_string()).collect();
+    let labels: HashMap<String, String> =
+        [("MS Gothic", "ＭＳ ゴシック"), ("Microsoft YaHei", "微软雅黑")].iter().map(|(a, b)| (a.to_string(), b.to_string())).collect();
+    let rows = |labels: Option<&HashMap<String, String>>, q: &str| -> Vec<(String, String)> {
+        super::font_menu_rows(&families, labels, q).into_iter().map(|(f, l)| (f.clone(), l.to_string())).collect()
+    };
+    let english = rows(None, "");
+    assert!(english.iter().all(|(f, l)| f == l));
+    let local = rows(Some(&labels), "");
+    assert_eq!(local.iter().map(|(_, l)| l.as_str()).collect::<Vec<_>>(), ["Arial", "微软雅黑", "ＭＳ ゴシック"]);
+    assert_eq!(rows(Some(&labels), "yahei"), [("Microsoft YaHei".to_string(), "微软雅黑".to_string())]);
+    assert_eq!(rows(Some(&labels), "雅黑"), [("Microsoft YaHei".to_string(), "微软雅黑".to_string())]);
+    assert!(rows(Some(&labels), "nothing").is_empty());
+}

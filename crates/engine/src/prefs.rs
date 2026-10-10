@@ -1002,7 +1002,6 @@ pub const HIDDEN_UNTIL_IMPLEMENTED: &[&str] = &[
     "plugIns.allowScriptsToConnect",
     "plugIns.generatorEnabled",
     "type.missingGlyphProtection",
-    "type.showFontNamesInEnglish",
     "type.textEngine",
     "type.fontPreview",
     "type.recentFonts",
